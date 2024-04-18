@@ -10,11 +10,18 @@ import android.os.Bundle;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyPermanentlyInvalidatedException;
 import android.security.keystore.KeyProperties;
+import android.text.TextUtils;
+import android.util.Log;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
 import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import java.io.IOException;
 import java.security.InvalidAlgorithmParameterException;
@@ -25,6 +32,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.CertificateException;
+import java.util.concurrent.Executor;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -34,12 +42,18 @@ import javax.crypto.SecretKey;
 import in.proz.apms.Handler.FingerprintHandler;
 
 public class FingerPrintActivity extends AppCompatActivity {
+    // Defining variable for storing
+    // key in android keystore container
+    String message = null;
     private KeyStore keyStore;
     // Defining variable for storing
     // key in android keystore container
     private static final String KEY_NAME = "PROZAPMS";
     private Cipher cipher;
-    private TextView errorText;
+
+    BiometricPrompt biometricPrompt;
+    BiometricPrompt.PromptInfo promptInfo;
+
     @RequiresApi(api = Build.VERSION_CODES.M)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,104 +61,65 @@ public class FingerPrintActivity extends AppCompatActivity {
         setContentView(R.layout.activity_finger_id);
 
 
-        // Initializing KeyguardManager and FingerprintManager
-        KeyguardManager keyguardManager = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
-        FingerprintManager fingerprintManager = (FingerprintManager) getSystemService(FINGERPRINT_SERVICE);
+        BiometricManager biometricManager = BiometricManager.from(this);
+        switch (biometricManager.canAuthenticate()) {
+            case BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE:
+                message = "No Biometric Hardware in your device";
+                  Toast.makeText(getApplicationContext(), " No bio hardware ", Toast.LENGTH_SHORT).show();
+                break;
+            case BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE:
+                message = "Biometric Not Working";
 
-        // Initializing our error text
-        errorText = (TextView) findViewById(R.id.errorText);
+                 Toast.makeText(getApplicationContext(), " Not working ", Toast.LENGTH_SHORT).show();
+                break;
+            case BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED:
+                message = "Fingerprint No Enrolled in Your Device.Please Add One Fingerprint and Login";
+                Toast.makeText(getApplicationContext(), message, Toast.LENGTH_SHORT).show();
 
-        // Here, we are using various security checks
-        // Checking device is inbuilt with fingerprint sensor or not
-        if(!fingerprintManager.isHardwareDetected()){
+                break;
 
-            // Setting error message if device
-            // doesn't have fingerprint sensor
-            errorText.setText("Device does not support fingerprint sensor");
-        }else {
-            // Checking fingerprint permission
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.USE_FINGERPRINT) != PackageManager.PERMISSION_GRANTED) {
-                errorText.setText("Fingerprint authentication is not enabled");
-            }else{
-                // Check for at least one registered finger
-                if (!fingerprintManager.hasEnrolledFingerprints()) {
-                    errorText.setText("Register at least one finger");
-                }else{
-                    // Checking for screen lock security
-                    if (!keyguardManager.isKeyguardSecure()) {
-                        errorText.setText("Screen lock security not enabled");
-                    }else{
 
-                        // if everything is enabled and correct then we will generate
-                        // the encryption key which will be stored on the device
-                        generateKey();
-                        if (cipherInit()) {
-                            FingerprintManager.CryptoObject cryptoObject = new FingerprintManager.CryptoObject(cipher);
-                            FingerprintHandler helper = new FingerprintHandler(this);
-                            helper.Authentication(fingerprintManager, cryptoObject);
-                        }
-                    }
-                }
+        }
+
+        Executor executor = ContextCompat.getMainExecutor(this);
+        biometricPrompt = new BiometricPrompt(FingerPrintActivity.this, executor, new BiometricPrompt.AuthenticationCallback() {
+            @Override
+            public void onAuthenticationError(int errorCode, @NonNull CharSequence errString) {
+                super.onAuthenticationError(errorCode, errString);
+                 Toast.makeText(getApplicationContext(),"Failed to authendicate",Toast.LENGTH_SHORT).show();
             }
-        }
-    }
+
+            @Override
+            public void onAuthenticationSucceeded(@NonNull BiometricPrompt.AuthenticationResult result) {
+                super.onAuthenticationSucceeded(result);
+                 Toast.makeText(getApplicationContext(), " authendication success  ", Toast.LENGTH_SHORT).show();
+                 try {
+                    // Access crypto object from the authentication result
+                    BiometricPrompt.CryptoObject cryptoObject = result.getCryptoObject();
+                    Log.d("promtinfo", " object as " + cryptoObject);
+                    if (cryptoObject != null) {
+                        // Handle crypto object, perform cryptographic operations, or access biometric data
+                        Cipher cipher = cryptoObject.getCipher();
+                        Log.d("promtinfo", " cipher " + cipher);
+                        // Use the cipher to perform cryptographic operations or access biometric data
+                    }
+                } catch (Exception e) {
+                    Log.d("promtinfo", "exception " + e.getMessage());
+                    // Handle exception
+                }
 
 
-    @TargetApi(Build.VERSION_CODES.M)
-    protected void generateKey() {
-        try {
-            keyStore = KeyStore.getInstance("AndroidKeyStore");
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+            }
+
+            @Override
+            public void onAuthenticationFailed() {
+                super.onAuthenticationFailed();
+            }
+        });
+        promptInfo = new BiometricPrompt.PromptInfo.Builder().setTitle("Login ")
+                .setDescription("Use Fingerpint to login ").setDeviceCredentialAllowed(true).build();
+        biometricPrompt.authenticate(promptInfo);
 
 
-        KeyGenerator keyGenerator;
-        try {
-            keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
-        } catch (NoSuchAlgorithmException | NoSuchProviderException e) {
-            throw new RuntimeException("KeyGenerator instance failed", e);
-        }
-
-        try {
-            keyStore.load(null);
-            keyGenerator.init(new
-                    KeyGenParameterSpec.Builder(KEY_NAME,
-                    KeyProperties.PURPOSE_ENCRYPT |
-                            KeyProperties.PURPOSE_DECRYPT)
-                    .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
-                    .setUserAuthenticationRequired(true)
-                    .setEncryptionPaddings(
-                            KeyProperties.ENCRYPTION_PADDING_PKCS7)
-                    .build());
-            keyGenerator.generateKey();
-        } catch (NoSuchAlgorithmException |
-                 InvalidAlgorithmParameterException
-                 | CertificateException | IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-
-    @TargetApi(Build.VERSION_CODES.M)
-    public boolean cipherInit() {
-        try {
-            cipher = Cipher.getInstance(KeyProperties.KEY_ALGORITHM_AES + "/" + KeyProperties.BLOCK_MODE_CBC + "/" + KeyProperties.ENCRYPTION_PADDING_PKCS7);
-        } catch (NoSuchAlgorithmException | NoSuchPaddingException e) {
-            throw new RuntimeException("Cipher failed", e);
-        }
-
-        try {
-            keyStore.load(null);
-            SecretKey key = (SecretKey) keyStore.getKey(KEY_NAME,
-                    null);
-            cipher.init(Cipher.ENCRYPT_MODE, key);
-            return true;
-        } catch (KeyPermanentlyInvalidatedException e) {
-            return false;
-        } catch (KeyStoreException | CertificateException | UnrecoverableKeyException | IOException | NoSuchAlgorithmException |
-                 InvalidKeyException e) {
-            throw new RuntimeException("Cipher initialization failed", e);
-        }
     }
 }

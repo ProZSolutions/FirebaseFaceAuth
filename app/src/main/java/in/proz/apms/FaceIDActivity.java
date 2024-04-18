@@ -17,11 +17,17 @@ import android.provider.MediaStore;
 import android.provider.Settings;
 import android.util.Log;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
+import com.google.firebase.ml.vision.FirebaseVision;
 import com.google.firebase.ml.vision.common.FirebaseVisionImage;
 import com.google.firebase.ml.vision.face.FirebaseVisionFace;
 import com.google.firebase.ml.vision.face.FirebaseVisionFaceDetector;
@@ -32,139 +38,102 @@ import com.karumi.dexter.PermissionToken;
 import com.karumi.dexter.listener.PermissionRequest;
 import com.karumi.dexter.listener.multi.MultiplePermissionsListener;
 
-import org.jetbrains.annotations.Nullable;
-
 import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.util.List;
 
 public class FaceIDActivity extends AppCompatActivity {
-    int REQUEST_ONE=100,PICK_ONE=1;
-    private static final int PICK_IMAGE = 1000;
-
-    Uri imageUri;
     FirebaseVisionFaceDetector detector;
-    FirebaseVisionFaceDetectorOptions options;
-    TextView txtTakePicture;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_face_id);
-        /*FirebaseApp.initializeApp(SampleFaceID.this);
-        txtTakePicture = findViewById(R.id.txtTakePicture);
-         options =
+        FirebaseVisionFaceDetectorOptions options =
                 new FirebaseVisionFaceDetectorOptions.Builder()
                         .setPerformanceMode(FirebaseVisionFaceDetectorOptions.FAST)
+                        .setLandmarkMode(FirebaseVisionFaceDetectorOptions.NO_LANDMARKS)
+                        .setClassificationMode(FirebaseVisionFaceDetectorOptions.NO_CLASSIFICATIONS)
                         .build();
 
-         detector = FirebaseVision.getInstance()
-                .getVisionFaceDetector(options);*/
+        // Create a FirebaseVisionFaceDetector
+        detector = FirebaseVision.getInstance()
+                .getVisionFaceDetector(options);
 
-// Create a FirebaseVisionImage object from a Bitmap, ByteBuffer, etc.
 
-// Pass the image to the detector
-        callImageMethod();
-    }
-    public  void  callImageMethod(){
-        if (Build.VERSION.SDK_INT >= 30) {
-            pickImage2(PICK_IMAGE);
-        }else {
-            if (checkPermission()) {
-                pickImage2(PICK_IMAGE);
-            } else {
-                requestPermission(0,0);
-            }
+
+
+        Intent intent = new Intent( MediaStore.ACTION_IMAGE_CAPTURE);
+        intent.putExtra("android.intent.extras.CAMERA_FACING", 1);
+        if (intent.resolveActivity(getPackageManager())!= null) {
+            startActivityForResult(
+                    intent, 100);
         }
-    }
-    private boolean checkPermission() {
-        int result = ContextCompat.checkSelfPermission(FaceIDActivity.this,
-                READ_EXTERNAL_STORAGE);
-        int result1=ContextCompat.checkSelfPermission(FaceIDActivity.this,
-                WRITE_EXTERNAL_STORAGE);
-        return result == PackageManager.PERMISSION_GRANTED && result1==PackageManager.PERMISSION_GRANTED;
-    }
-    private void requestPermission(int requestCode,int sdk_version) {
-        Dexter.withContext(FaceIDActivity.this)
-                .withPermissions(
-                        android.Manifest.permission.READ_EXTERNAL_STORAGE,
-                        Manifest.permission.WRITE_EXTERNAL_STORAGE
-                ).withListener(new MultiplePermissionsListener() {
-                    @Override public void onPermissionsChecked(MultiplePermissionsReport report) {/* ... */
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            if(!Environment.isExternalStorageManager()){
-                                Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-                                Uri uri = Uri.fromParts("package", getPackageName(), null);
-                                intent.setData(uri);
-                                startActivity(intent);
-                            }else{
-                                pickImage2(PICK_ONE);
+        else {
+            // if the image is not captured, set
+            // a toast to display an error image.
+            Toast
+                    .makeText(
+                            FaceIDActivity.this,
+                            "Something went wrong",
+                            Toast.LENGTH_SHORT)
+                    .show();
+        }
 
-                            }
-                        }
-                    }
-                    @Override public void onPermissionRationaleShouldBeShown(List<PermissionRequest> permissions,
-                                                                             PermissionToken token) {
-                        Log.d("feedback_request"," permission not granded ");
-                        /* ... */}
-                }).check();
+        // Convert bitmap to FirebaseVisionImage
+
+
+
     }
-    private void pickImage2(int i) {
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.Images.Media.TITLE,"new image");
-        values.put(MediaStore.Images.Media.DESCRIPTION,"Fromthe Camera");
-        imageUri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
-        Intent camintent= new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        camintent.putExtra(MediaStore.EXTRA_OUTPUT,imageUri);
-        startActivityForResult(camintent,PICK_IMAGE);
-    }
+
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
+    protected void onActivityResult(int requestCode,
+                                    int resultCode,
+                                    @Nullable Intent data)
+    {
+        // after the image is captured, ML Kit provides an
+        // easy way to detect faces from variety of image
+        // types like Bitmap
 
-        if (requestCode == PICK_IMAGE) {
-            if (resultCode == RESULT_OK) {
-                if (imageUri != null) {
-
-                    final InputStream imageStream;
-                    try {
-                        imageStream = getContentResolver().openInputStream(imageUri);
-                        Log.d("thumbnail_url", " image strm " + imageStream);
-                        final Bitmap selectedImagebit = BitmapFactory.decodeStream(imageStream);
-                        Log.d("thumbnail_url", "bitmao " + selectedImagebit);
-                        Bitmap bitmap = Bitmap.createScaledBitmap(selectedImagebit, 100, 100, true);
-                        Log.d("thumbnail_url"," bitmap "+bitmap);
-                       FirebaseVisionImage image = FirebaseVisionImage.fromBitmap(bitmap);
-                        if(image!=null){
-                            callTask(image);
-                        }
-
-
-                    } catch (FileNotFoundException e) {
-                        Log.d("thumbnail_url", " error " + e.getMessage());
-                        e.printStackTrace();
-                    }
-                }
-            }
-        }
-
-    }
-
-    private void callTask(FirebaseVisionImage image) {
-        Task<List<FirebaseVisionFace>> result =
-                detector.detectInImage(image)
-                        .addOnSuccessListener(faces -> {
+        super.onActivityResult(requestCode, resultCode,
+                data);
+        if (requestCode == 100
+                && resultCode == RESULT_OK) {
+            Bundle extra = data.getExtras();
+            Bitmap bitmap = (Bitmap)extra.get("data");
+            FirebaseVisionImage image = FirebaseVisionImage.fromBitmap(bitmap);
+            detector.detectInImage(image)
+                    .addOnSuccessListener(new OnSuccessListener<List<FirebaseVisionFace>>() {
+                        @Override
+                        public void onSuccess(List<FirebaseVisionFace> faces) {
                             // Task completed successfully
-                            // Handle the detected faces here
+                            // Process the detected faces
+                            Log.d("FaceDetect","on success");
                             for (FirebaseVisionFace face : faces) {
-                                // Process each detected face
+                                // Get face boundaries
+                                float left = face.getBoundingBox().left;
+                                float top = face.getBoundingBox().top;
+                                float right = face.getBoundingBox().right;
+                                float bottom = face.getBoundingBox().bottom;
+                                Toast.makeText(getApplicationContext(),"Face Captured Successfully ",Toast.LENGTH_SHORT).show();
+                               // commonClass.showSuccess(FaceDetectActivity.this,"Authendication Success");
+                                // Process other face data if needed
                             }
-                        })
-                        .addOnFailureListener(e -> {
+                        }
+                    })
+                    .addOnFailureListener(new OnFailureListener() {
+                        @Override
+                        public void onFailure(@NonNull Exception e) {
                             // Task failed with an exception
-                            // Handle any errors here
-                        });
+                            // Handle the failure
+                            Toast.makeText(getApplicationContext(),"Failed to capture face  ",Toast.LENGTH_SHORT).show();
+                            Log.d("FaceDetect"," error "+e.getMessage());
+                        }
+                    });
 
-
+        }
     }
+
+
 
 }
+
